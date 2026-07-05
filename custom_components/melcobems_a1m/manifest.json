@@ -1,0 +1,14 @@
+{
+  "domain": "melcobems_a1m",
+  "name": "MelcoBEMS MINI (A1M) Mitsubishi VRF",
+  "codeowners": ["@jamesrossell"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/jamesrossell/melcobems_a1m",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/jamesrossell/melcobems_a1m/issues",
+  "loggers": ["custom_components.melcobems_a1m"],
+  "requirements": [],
+  "version": "0.1.0"
+}

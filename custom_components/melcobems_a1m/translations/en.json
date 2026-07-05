@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "MelcoBEMS A1M bus",
+        "description": "Connect the RS-485 bus carrying your A1M interfaces. List the units as `address:Name` pairs, e.g. `1:Kitchen 1, 2:Kitchen 2`. Each unit is probed and must answer as an Air-To-Air system.",
+        "data": {
+          "title": "Name for this bus",
+          "connection": "Connection type",
+          "serial_port": "Serial port (use /dev/serial/by-id/…)",
+          "baudrate": "Baud rate",
+          "tcp_host": "TCP host (RTU-over-TCP gateway)",
+          "tcp_port": "TCP port",
+          "slaves_raw": "Units (address:Name, comma-separated)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not open the serial port / TCP connection. Is another integration (e.g. the built-in modbus hub) holding the port?",
+      "invalid_slaves": "Could not parse the unit list — use e.g. `1:Kitchen 1, 2:Kitchen 2` with addresses 1-247.",
+      "slave_failed": "One or more units did not validate (no reply, or not an Air-To-Air system)."
+    },
+    "abort": {
+      "already_configured": "This bus is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "A1M options",
+        "description": "Setpoint Offset: pick an external room temperature sensor per unit and enable the feed — Home Assistant will keep the A1M supplied with the real room temperature so the unit thermostats on it (instead of its return-air reading). Feeds auto-disable when a sensor goes stale and on shutdown.",
+        "data": {
+          "scan_interval": "Poll interval (seconds)"
+        }
+      }
+    }
+  }
+}
