@@ -56,6 +56,76 @@ def _parse_slaves(raw: str) -> list[dict]:
     return out
 
 
+def _transport_schema(defaults: dict[str, Any]) -> dict[Any, Any]:
+    """Connection fields shared by the user and reconfigure steps."""
+    host_kwargs = {"default": defaults[CONF_TCP_HOST]} if defaults.get(CONF_TCP_HOST) else {}
+    return {
+        vol.Required(
+            CONF_CONNECTION, default=defaults.get(CONF_CONNECTION, CONN_SERIAL)
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[CONN_SERIAL, CONN_TCP],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        ),
+        vol.Optional(
+            CONF_SERIAL_PORT, default=defaults.get(CONF_SERIAL_PORT) or DEFAULT_PORT_HINT
+        ): str,
+        vol.Optional(
+            CONF_BAUDRATE, default=defaults.get(CONF_BAUDRATE, DEFAULT_BAUDRATE)
+        ): int,
+        vol.Optional(CONF_TCP_HOST, **host_kwargs): str,
+        vol.Optional(CONF_TCP_PORT, default=defaults.get(CONF_TCP_PORT, 502)): int,
+    }
+
+
+def _transport_data(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Normalise the connection fields; the unused transport's fields are cleared."""
+    conn = user_input[CONF_CONNECTION]
+    return {
+        CONF_CONNECTION: conn,
+        CONF_SERIAL_PORT: user_input.get(CONF_SERIAL_PORT) if conn == CONN_SERIAL else None,
+        CONF_BAUDRATE: user_input.get(CONF_BAUDRATE, DEFAULT_BAUDRATE),
+        CONF_TCP_HOST: user_input.get(CONF_TCP_HOST) if conn == CONN_TCP else None,
+        CONF_TCP_PORT: user_input.get(CONF_TCP_PORT, 502),
+    }
+
+
+def _bus_unique_id(transport: dict[str, Any]) -> str:
+    return transport[CONF_SERIAL_PORT] or f"{transport[CONF_TCP_HOST]}:{transport[CONF_TCP_PORT]}"
+
+
+async def _probe(transport: dict[str, Any], slaves: list[dict]) -> tuple[str | None, str]:
+    """Open the transport and check every unit answers as Air-To-Air.
+
+    Returns (error_key or None, description of failed units).
+    """
+    bridge = A1MBridge(
+        transport[CONF_CONNECTION],
+        serial_port=transport[CONF_SERIAL_PORT],
+        baudrate=transport[CONF_BAUDRATE],
+        tcp_host=transport[CONF_TCP_HOST],
+        tcp_port=transport[CONF_TCP_PORT],
+    )
+    try:
+        await bridge.connect()
+    except Exception:  # noqa: BLE001
+        return "cannot_connect", ""
+    bad: list[str] = []
+    try:
+        for s in slaves:
+            regs = await bridge.read_block(s["id"])
+            if regs is None:
+                bad.append(f"{s['id']} (no reply)")
+            elif regs[REG_SYSTYPE] != 0:
+                bad.append(f"{s['id']} (not Air-To-Air)")
+            else:
+                _LOGGER.info("A1M slave %s validated, fw raw %s", s["id"], regs[REG_FW])
+    finally:
+        await bridge.close()
+    return ("slave_failed" if bad else None), ", ".join(bad)
+
+
 class A1MConfigFlow(ConfigFlow, domain=DOMAIN):
     """Set up one bus: transport + the units on it (validated live)."""
 
@@ -72,73 +142,65 @@ class A1MConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["slaves_raw"] = "invalid_slaves"
                 slaves = []
             if not errors:
-                conn = user_input[CONF_CONNECTION]
-                bridge = A1MBridge(
-                    conn,
-                    serial_port=user_input.get(CONF_SERIAL_PORT),
-                    baudrate=user_input.get(CONF_BAUDRATE, DEFAULT_BAUDRATE),
-                    tcp_host=user_input.get(CONF_TCP_HOST),
-                    tcp_port=user_input.get(CONF_TCP_PORT, 502),
-                )
-                try:
-                    await bridge.connect()
-                except Exception:  # noqa: BLE001
-                    errors["base"] = "cannot_connect"
+                transport = _transport_data(user_input)
+                err, self._bad = await _probe(transport, slaves)
+                if err:
+                    errors["base"] = err
                 else:
-                    bad: list[str] = []
-                    for s in slaves:
-                        regs = await bridge.read_block(s["id"])
-                        if regs is None:
-                            bad.append(f"{s['id']} (no reply)")
-                        elif regs[REG_SYSTYPE] != 0:
-                            bad.append(f"{s['id']} (not Air-To-Air)")
-                        else:
-                            _LOGGER.info(
-                                "A1M slave %s validated, fw raw %s",
-                                s["id"],
-                                regs[REG_FW],
-                            )
-                    await bridge.close()
-                    if bad:
-                        errors["base"] = "slave_failed"
-                        self._bad = ", ".join(bad)
-                if not errors:
-                    unique = (
-                        user_input.get(CONF_SERIAL_PORT)
-                        or f"{user_input.get(CONF_TCP_HOST)}:{user_input.get(CONF_TCP_PORT)}"
-                    )
-                    await self.async_set_unique_id(unique)
+                    await self.async_set_unique_id(_bus_unique_id(transport))
                     self._abort_if_unique_id_configured()
-                    data = {
-                        CONF_CONNECTION: conn,
-                        CONF_SERIAL_PORT: user_input.get(CONF_SERIAL_PORT),
-                        CONF_BAUDRATE: user_input.get(CONF_BAUDRATE, DEFAULT_BAUDRATE),
-                        CONF_TCP_HOST: user_input.get(CONF_TCP_HOST),
-                        CONF_TCP_PORT: user_input.get(CONF_TCP_PORT, 502),
-                        CONF_SLAVES: slaves,
-                    }
                     return self.async_create_entry(
                         title=user_input.get("title") or "Mitsubishi VRF (A1M)",
-                        data=data,
+                        data={**transport, CONF_SLAVES: slaves},
                     )
 
         schema = vol.Schema(
             {
                 vol.Optional("title", default="Mitsubishi VRF (A1M)"): str,
-                vol.Required(CONF_CONNECTION, default=CONN_SERIAL): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[CONN_SERIAL, CONN_TCP],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(CONF_SERIAL_PORT, default=DEFAULT_PORT_HINT): str,
-                vol.Optional(CONF_BAUDRATE, default=DEFAULT_BAUDRATE): int,
-                vol.Optional(CONF_TCP_HOST): str,
-                vol.Optional(CONF_TCP_PORT, default=502): int,
+                **_transport_schema({}),
                 vol.Required("slaves_raw", default=DEFAULT_SLAVES): str,
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Move an existing bus to a new transport (e.g. USB serial -> PoE
+        Modbus TCP gateway) while keeping the entry, its entities and history.
+
+        The running entry is unloaded first so a serial port it holds is free
+        for the probe; if the probe fails the entry is set back up unchanged.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        placeholders = {"bad": ""}
+        if user_input is not None:
+            transport = _transport_data(user_input)
+            if transport[CONF_CONNECTION] == CONN_TCP and not transport[CONF_TCP_HOST]:
+                errors[CONF_TCP_HOST] = "host_required"
+            else:
+                await self.hass.config_entries.async_unload(entry.entry_id)
+                err, placeholders["bad"] = await _probe(transport, list(entry.data[CONF_SLAVES]))
+                if err:
+                    errors["base"] = err
+                    await self.hass.config_entries.async_setup(entry.entry_id)
+                else:
+                    unique = _bus_unique_id(transport)
+                    for other in self._async_current_entries(include_ignore=False):
+                        if other.entry_id != entry.entry_id and other.unique_id == unique:
+                            await self.hass.config_entries.async_setup(entry.entry_id)
+                            return self.async_abort(reason="already_configured")
+                    return self.async_update_reload_and_abort(
+                        entry, unique_id=unique, data_updates=transport
+                    )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(_transport_schema(dict(entry.data))),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
 
     @staticmethod
     @callback

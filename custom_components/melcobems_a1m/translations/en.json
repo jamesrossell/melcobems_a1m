@@ -9,19 +9,32 @@
           "connection": "Connection type",
           "serial_port": "Serial port (use /dev/serial/by-id/…)",
           "baudrate": "Baud rate",
-          "tcp_host": "TCP host (RTU-over-TCP gateway)",
-          "tcp_port": "TCP port",
+          "tcp_host": "Modbus TCP gateway host / IP",
+          "tcp_port": "Modbus TCP port",
           "slaves_raw": "Units (address:Name, comma-separated)"
+        }
+      },
+      "reconfigure": {
+        "title": "Change how Home Assistant reaches the A1M bus",
+        "description": "Switch this bus between a USB serial adapter and a network Modbus TCP gateway (set the gateway to Modbus TCP ⇄ RTU, same baud/8N1 as the A1Ms). Your units, entities, history and options stay as they are. Every unit is probed on the new connection before anything is saved.",
+        "data": {
+          "connection": "Connection type",
+          "serial_port": "Serial port (use /dev/serial/by-id/…)",
+          "baudrate": "Baud rate",
+          "tcp_host": "Modbus TCP gateway host / IP",
+          "tcp_port": "Modbus TCP port"
         }
       }
     },
     "error": {
       "cannot_connect": "Could not open the serial port / TCP connection. Is another integration (e.g. the built-in modbus hub) holding the port?",
       "invalid_slaves": "Could not parse the unit list — use e.g. `1:Kitchen 1, 2:Kitchen 2` with addresses 1-247.",
-      "slave_failed": "One or more units did not validate (no reply, or not an Air-To-Air system)."
+      "slave_failed": "One or more units did not validate (no reply, or not an Air-To-Air system). {bad}",
+      "host_required": "Enter the gateway’s host name or IP address."
     },
     "abort": {
-      "already_configured": "This bus is already configured."
+      "already_configured": "This bus is already configured.",
+      "reconfigure_successful": "Connection updated. The integration has reloaded on the new connection."
     }
   },
   "options": {

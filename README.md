@@ -88,8 +88,13 @@ Assistant" finds more than I did.
   "Unit fault NNNN"), a `problem` binary sensor per unit for alerting, plus diagnostic
   firmware and bus-traffic counters.
 - **Virtual Setpoint number entity** per unit for automations/dashboards.
-- Transport: serial RTU today; RTU-over-TCP plumbing is present for serial-device servers
-  and the A1M+ generation.
+- **Transport**: USB serial (Modbus RTU) or a network **Modbus TCP gateway**, e.g. a PoE
+  RS-485 serial server set to *Modbus TCP ⇄ RTU* mode (port 502). The integration speaks
+  standard Modbus TCP, so a gateway in plain "transparent" mode will **not** work.
+- **Reconfigure** (v0.2.0): *Settings → Devices & services → the A1M entry → ⋮ → Reconfigure*
+  moves an existing bus between serial and TCP (or to a new port/IP) in place. Units,
+  entities, history and options are kept, and every unit is probed on the new connection
+  before anything is saved. If the probe fails, the bus carries on as it was.
 
 ## Tested on
 
