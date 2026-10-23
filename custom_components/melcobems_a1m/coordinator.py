@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -32,6 +33,11 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# The A1M reports a written value back only on a later poll (~30 s observed),
+# so a just-written register is held in the cache until the readback agrees or
+# this hold expires; otherwise an early poll would flip the UI back and forth.
+PENDING_HOLD = 60  # seconds
 
 
 @dataclass
@@ -104,6 +110,8 @@ class A1MCoordinator(DataUpdateCoordinator[dict[int, UnitData]]):
         self.bridge = bridge
         self.slaves = slaves  # [{"id": 1, "name": "Kitchen 1"}, ...]
         self._armed: set[int] = set()  # slaves we last fed a non-zero room temp
+        # (slave, register) -> (written value, monotonic expiry); see PENDING_HOLD
+        self._pending: dict[tuple[int, int], tuple[int, float]] = {}
 
     # ------------------------------------------------------------------ polling
     async def _async_update_data(self) -> dict[int, UnitData]:
@@ -112,6 +120,7 @@ class A1MCoordinator(DataUpdateCoordinator[dict[int, UnitData]]):
             slave = s["id"]
             regs = await self.bridge.read_block(slave)
             if regs is not None:
+                self._apply_pending(slave, regs)
                 data[slave] = UnitData(slave=slave, regs=regs)
         if not data:
             raise UpdateFailed("No A1M answered on the bus")
@@ -172,9 +181,30 @@ class A1MCoordinator(DataUpdateCoordinator[dict[int, UnitData]]):
         self._armed.clear()
 
     # ---------------------------------------------------------------- write API
-    async def async_write(self, slave: int, address: int, value: int) -> None:
-        """Write a register then refresh promptly so the UI reflects reality."""
+    def _apply_pending(self, slave: int, regs: list[int]) -> None:
+        """Overlay just-written values on a fresh read until the A1M echoes them."""
+        now = time.monotonic()
+        for (s, address), (value, expiry) in list(self._pending.items()):
+            if s != slave:
+                continue
+            if regs[address] == value or now > expiry:
+                del self._pending[(s, address)]
+            else:
+                regs[address] = value
+
+    async def async_write(self, slave: int, address: int, value: int) -> bool:
+        """Write a register and update the cached snapshot optimistically.
+
+        The calling entity then writes its state straight away, inside the
+        service call - so the change carries the caller's context (the user
+        or automation that asked) instead of an anonymous poll 30 s later.
+        """
         ok = await self.bridge.write_register(slave, address, value)
         if not ok:
             _LOGGER.warning("write failed: slave %s reg %s = %s", slave, address, value)
-        await self.async_request_refresh()
+            return False
+        self._pending[(slave, address)] = (value, time.monotonic() + PENDING_HOLD)
+        unit = (self.data or {}).get(slave)
+        if unit is not None:
+            unit.regs[address] = value
+        return True

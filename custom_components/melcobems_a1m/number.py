@@ -44,3 +44,4 @@ class VirtualSetpointNumber(A1MUnitEntity, NumberEntity):
         await self.coordinator.async_write(
             self._slave, REG_VSP, int(round(value * 10))
         )
+        self.async_write_ha_state()

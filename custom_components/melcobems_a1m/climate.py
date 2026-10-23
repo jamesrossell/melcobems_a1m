@@ -157,22 +157,29 @@ class A1MClimate(A1MUnitEntity, ClimateEntity):
         }
 
     # ------------------------------------------------------------------ commands
+    # Every command writes through the coordinator's optimistic cache and then
+    # publishes state immediately, inside the service call: the state change
+    # carries the caller's context (so automations can tell a person's "off"
+    # from an automation's) and the UI updates at once instead of next poll.
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode == HVACMode.OFF:
             await self.coordinator.async_write(self._slave, REG_POWER, 0)
-            return
-        u = self.unit
-        if u is not None and not u.power_on:
-            await self.coordinator.bridge.write_register(self._slave, REG_POWER, 1)
-        await self.coordinator.async_write(
-            self._slave, REG_MODE, HVAC_TO_MODE[hvac_mode.value]
-        )
+        else:
+            u = self.unit
+            if u is not None and not u.power_on:
+                await self.coordinator.async_write(self._slave, REG_POWER, 1)
+            await self.coordinator.async_write(
+                self._slave, REG_MODE, HVAC_TO_MODE[hvac_mode.value]
+            )
+        self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:
         await self.coordinator.async_write(self._slave, REG_POWER, 1)
+        self.async_write_ha_state()
 
     async def async_turn_off(self) -> None:
         await self.coordinator.async_write(self._slave, REG_POWER, 0)
+        self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temp = kwargs.get(ATTR_TEMPERATURE)
@@ -181,7 +188,9 @@ class A1MClimate(A1MUnitEntity, ClimateEntity):
         value = int(round(float(temp) * 10))
         reg = REG_VSP if self._offset_active() else REG_SETPOINT
         await self.coordinator.async_write(self._slave, reg, value)
+        self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         if fan_mode in HA_TO_FAN:
             await self.coordinator.async_write(self._slave, REG_FAN, HA_TO_FAN[fan_mode])
+            self.async_write_ha_state()
