@@ -55,15 +55,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
-    # Bus device; unit devices hang off it via via_device.
+    # Bus device; unit devices hang off it (via_device_id, see entity.py).
     dev_reg = dr.async_get(hass)
-    dev_reg.async_get_or_create(
+    coordinator.bus_device_id = dev_reg.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         manufacturer=MANUFACTURER,
         model=BUS_MODEL,
         name=entry.title,
-    )
+    ).id
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

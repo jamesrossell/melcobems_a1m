@@ -109,6 +109,7 @@ class A1MCoordinator(DataUpdateCoordinator[dict[int, UnitData]]):
         self.entry = entry
         self.bridge = bridge
         self.slaves = slaves  # [{"id": 1, "name": "Kitchen 1"}, ...]
+        self.bus_device_id: str | None = None  # registry id of the bus device, set in setup
         self._armed: set[int] = set()  # slaves we last fed a non-zero room temp
         # (slave, register) -> (written value, monotonic expiry); see PENDING_HOLD
         self._pending: dict[tuple[int, int], tuple[int, float]] = {}
